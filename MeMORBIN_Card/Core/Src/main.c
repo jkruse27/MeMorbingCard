@@ -183,32 +183,38 @@ void transmit_uart_message(char message, uint8_t size){
 }
 
 void USART1_IRQHandler(void){
-	if(USART_GetITStatus(huart1, USART_IT_RXNE) != RESET){
-		uint8_t tmp = USART_ReceiveData(huart1);
+	if(USART_GetITStatus(huart1, USART_IT_RXNE) == RESET){
+		return;
+	}
+	uint8_t tmp = USART_ReceiveData(huart1);
 
-		if(command == NONE){
-			if(tmp == '\n'){
-				command[n_received_bytes] = '\0';
-				n_received_bytes = 0;
+	if(command == NONE){
+		if(tmp == '\n'){
+			command[n_received_bytes] = '\0';
+			n_received_bytes = 0;
 
-				if(strcmp(command, "READ"))
-					current_command = READ;
-				else if(strcmp(command, "WRITE"))
-					current_command = WRITE;
-			}else
-				command[n_received_bytes++] = tmp;
-		}else if(command == WRITE){
-			if(n_received_bytes < 2)
-				addr_buffer[n_received_bytes++] = tmp;
-			else
-				data_buffer[n_received_bytes++] = tmp;
-
-			if(n_received_bytes >= 130)
-				ready_to_transmit = true;
-		}else if(command == READ){
+			if(strcmp(command, "READ"))
+				current_command = READ;
+			else if(strcmp(command, "WRITE"))
+				current_command = WRITE;
+		}else
+			command[n_received_bytes++] = tmp;
+	}else if(command == WRITE){
+		if(n_received_bytes < 2)
 			addr_buffer[n_received_bytes++] = tmp;
-			if(n_received_bytes >= 2)
-				ready_to_transmit = true;
+		else
+			data_buffer[n_received_bytes++] = tmp;
+
+		if(n_received_bytes >= 130){
+			ready_to_transmit = true;
+			n_received_bytes = 0;
+		}
+	}else if(command == READ){
+		addr_buffer[n_received_bytes++] = tmp;
+
+		if(n_received_bytes >= 2){
+			ready_to_transmit = true;
+			n_received_bytes = 0;
 		}
 	}
 }
