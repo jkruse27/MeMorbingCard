@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -39,7 +40,7 @@
 
 #define BUFFER_SIZE 200
 #define SEND_BUFFER_SIZE 145
-#define RECEIVE_BUFFER_SIZE 138
+#define RECEIVE_BUFFER_SIZE 148
 
 #define MEMCARD_BAD_CHECKSUM 0x4E
 #define MEMCARD_BAD_SECTOR 0xFF
@@ -48,11 +49,22 @@
 
 #define TIMEOUT 500
 
+#define READ_COMMAND 'R'
+#define WRITE_COMMAND 'W'
+
 typedef enum Command{
 	READ,
 	WRITE,
 	NONE
 } Command;
+
+typedef enum State{
+	START,
+	WAITING_FOR_COMMAND,
+	RECEIVED_COMMAND,
+	WAITING_FOR_DATA,
+	DONE
+} State;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -67,12 +79,12 @@ UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 //Vou usar variáveis globais mesmo por enquanto
-uint8_t command[10];
+uint8_t command;
 Command current_command = NONE;
 uint8_t addr_buffer[2];
 uint8_t data_buffer[128];
-uint8_t n_of_received_bytes = 0;
-bool ready_to_transmit = false;
+uint8_t buffer[130];
+State state = START;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -83,10 +95,10 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 uint8_t get_checksum(uint8_t* address, uint8_t* data);
 uint8_t write_to_memory(uint8_t* address, uint8_t* data);
-uint8_t read_from_memory(uint8_t* address, uint8_t* data);
+uint8_t read_from_memory(uint8_t* address, uint8_t* received_data);
 uint8_t check_write_errors(uint8_t* data);
 uint8_t check_read_errors(uint8_t* data);
-void transmit_uart_message(char message, uint8_t size);
+void transmit_uart_message(char*message, uint8_t size);
 
 /* USER CODE END PFP */
 
@@ -141,8 +153,9 @@ uint8_t check_read_errors(uint8_t* data){
 	return data[139];
 }
 
-uint8_t read_from_memory(uint8_t* address, uint8_t* receive_buffer){
+uint8_t read_from_memory(uint8_t* address, uint8_t* received_data){
   uint8_t send_buffer[RECEIVE_BUFFER_SIZE];
+  uint8_t receive_buffer[RECEIVE_BUFFER_SIZE];
 
   HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_RESET);
 
@@ -165,7 +178,7 @@ uint8_t read_from_memory(uint8_t* address, uint8_t* receive_buffer){
     send_buffer[10+i] = IDLE;
 
   for(i = 0; i < 8; i++)
-    send_buffer[130+i] = IDLE;
+    send_buffer[140+i] = IDLE;
 
   HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_RESET);
 
@@ -173,49 +186,41 @@ uint8_t read_from_memory(uint8_t* address, uint8_t* receive_buffer){
 
   HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_SET);
 
+  for(i=0; i < 128; i++)
+	  received_data[i] = receive_buffer[10+i];
+
   return check_read_errors(receive_buffer);
 }
 
-void transmit_uart_message(char message, uint8_t size){
+void transmit_uart_message(char* message, uint8_t size){
 	// deixei em uma funcao por enquanto mesmo sendo so isso para
 	// caso queiramos mudar a formatacao das mensagens depois
-	HAL_UART_Transmit(&huart1, message, size, HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart1, (uint8_t*) message, size, HAL_MAX_DELAY);
 }
 
-void USART1_IRQHandler(void){
-	if(USART_GetITStatus(huart1, USART_IT_RXNE) == RESET){
-		return;
-	}
-	uint8_t tmp = USART_ReceiveData(huart1);
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
+	if(current_command == NONE){
+		if(command == READ_COMMAND)
+			current_command = READ;
+		else if(command == WRITE_COMMAND)
+			current_command = WRITE;
 
-	if(command == NONE){
-		if(tmp == '\n'){
-			command[n_received_bytes] = '\0';
-			n_received_bytes = 0;
+		state = current_command == NONE ? START : RECEIVED_COMMAND;
 
-			if(strcmp(command, "READ"))
-				current_command = READ;
-			else if(strcmp(command, "WRITE"))
-				current_command = WRITE;
-		}else
-			command[n_received_bytes++] = tmp;
-	}else if(command == WRITE){
-		if(n_received_bytes < 2)
-			addr_buffer[n_received_bytes++] = tmp;
-		else
-			data_buffer[n_received_bytes++] = tmp;
+	}else if(current_command == WRITE){
+		addr_buffer[0] = buffer[0];
+		addr_buffer[1] = buffer[1];
 
-		if(n_received_bytes >= 130){
-			ready_to_transmit = true;
-			n_received_bytes = 0;
-		}
-	}else if(command == READ){
-		addr_buffer[n_received_bytes++] = tmp;
+		int i;
+		for(i = 0; i < 128; i++)
+			data_buffer[i] = buffer[2+i];
 
-		if(n_received_bytes >= 2){
-			ready_to_transmit = true;
-			n_received_bytes = 0;
-		}
+		state = DONE;
+	}else if(current_command == READ){
+		addr_buffer[0] = buffer[0];
+		addr_buffer[1] = buffer[1];
+
+		state = DONE;
 	}
 }
 
@@ -258,30 +263,43 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   uint8_t status = 0;
+  int receive_size = 0;
 
   while (1)
   {
-    if(ready_to_transmit){
-    	switch(current_command){
-    	  case READ:
-    	    status = read_from_memory(addr_buffer, data_buffer);
-    	    transmit_uart_message("STATUS: \r\n", 10);
-    	    transmit_uart_message(&status, 1);
-    	    transmit_uart_message("DATA: \r\n", 8);
-    	    transmit_uart_message(data_buffer, 128);
-    	    ready_to_transmit = NONE;
-    	    break;
+    switch(state){
+      case START:
+        HAL_UART_Receive_IT(&huart1, &command, 1);
+        state = WAITING_FOR_COMMAND;
+        break;
 
-    	  case WRITE:
-    		status = write_to_memory(addr_buffer, data_buffer);
-    	    transmit_uart_message("STATUS: \r\n", 10);
-    	    transmit_uart_message(&status, 1);
-    	    ready_to_transmit = NONE;
-    	    break;
+      case WAITING_FOR_COMMAND:
+    	  break;
 
-    	  default:
-    	    ready_to_transmit = NONE;
-    	}
+      case RECEIVED_COMMAND:
+    	  receive_size = current_command == READ ? 2 : 130;
+          HAL_UART_Receive_IT(&huart1, buffer, receive_size);
+          state = WAITING_FOR_COMMAND;
+          break;
+
+      case WAITING_FOR_DATA:
+    	  break;
+
+      case DONE:
+      	if(current_command == READ){
+      	    status = read_from_memory(addr_buffer, data_buffer);
+      	    transmit_uart_message("STATUS: \r\n", 10);
+      	    transmit_uart_message((char*) &status, 1);
+      	    transmit_uart_message("DATA: \r\n", 8);
+      	    transmit_uart_message((char*) data_buffer, 128);
+      	}else if(current_command == WRITE){
+      	   status = write_to_memory(addr_buffer, data_buffer);
+      	   transmit_uart_message("STATUS: \r\n", 10);
+      	   transmit_uart_message((char*) &status, 1);
+      	 }
+
+      	state = START;
+      	break;
     }
     /* USER CODE END WHILE */
 
