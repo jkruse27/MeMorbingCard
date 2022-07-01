@@ -104,6 +104,28 @@ void transmit_uart_message(char*message, uint8_t size);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void hex2int(uint8_t* ch){
+	uint8_t msb, lsb;
+    if (ch[0] >= '0' && ch[0] <= '9')
+        msb = ch[0] - '0';
+    else if (ch[0] >= 'A' && ch[0] <= 'F')
+        msb =  ch[0] - 'A' + 10;
+    else
+        msb = ch[0] - 'a' + 10;
+
+    if (ch[1] >= '0' && ch[1] <= '9')
+        lsb = ch[1] - '0';
+    else if (ch[1] >= 'A' && ch[1] <= 'F')
+        lsb =  ch[1] - 'A' + 10;
+    else
+        lsb = ch[1] - 'a' + 10;
+
+    uint16_t tmp = msb*16+lsb;
+
+    ch[0] = ((uint8_t*) &tmp)[0];
+    ch[1] = ((uint8_t*) &tmp)[1];
+}
+
 uint8_t get_checksum(uint8_t* address, uint8_t* data){
 	uint8_t check_sum = address[0]^address[1];
 
@@ -196,6 +218,8 @@ void transmit_uart_message(char* message, uint8_t size){
 	// deixei em uma funcao por enquanto mesmo sendo so isso para
 	// caso queiramos mudar a formatacao das mensagens depois
 	HAL_UART_Transmit(&huart1, (uint8_t*) message, size, HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart1, (uint8_t*) "\n\r", 2, HAL_MAX_DELAY);
+
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
@@ -210,6 +234,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 	}else if(current_command == WRITE){
 		addr_buffer[0] = buffer[0];
 		addr_buffer[1] = buffer[1];
+		hex2int(addr_buffer);
 
 		int i;
 		for(i = 0; i < 128; i++)
@@ -219,6 +244,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 	}else if(current_command == READ){
 		addr_buffer[0] = buffer[0];
 		addr_buffer[1] = buffer[1];
+		hex2int(addr_buffer);
 
 		state = DONE;
 	}
@@ -264,11 +290,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   uint8_t status = 0;
   int receive_size = 0;
-
   while (1)
   {
     switch(state){
       case START:
+    	transmit_uart_message("Esperando Comando", 17);
         HAL_UART_Receive_IT(&huart1, &command, 1);
         state = WAITING_FOR_COMMAND;
         break;
@@ -277,27 +303,37 @@ int main(void)
     	  break;
 
       case RECEIVED_COMMAND:
+    	  transmit_uart_message("Comando Recebido", 16);
+    	  char comm = '0'+current_command;
+    	  transmit_uart_message(&comm, 1);
+
     	  receive_size = current_command == READ ? 2 : 130;
           HAL_UART_Receive_IT(&huart1, buffer, receive_size);
-          state = WAITING_FOR_COMMAND;
+          state = WAITING_FOR_DATA;
+    	  transmit_uart_message("Esperando Dados", 15);
           break;
 
       case WAITING_FOR_DATA:
     	  break;
 
       case DONE:
+    	transmit_uart_message("Dados Recebidos", 15);
+    	char stat[3];
       	if(current_command == READ){
       	    status = read_from_memory(addr_buffer, data_buffer);
-      	    transmit_uart_message("STATUS: \r\n", 10);
-      	    transmit_uart_message((char*) &status, 1);
-      	    transmit_uart_message("DATA: \r\n", 8);
+      	    sprintf(stat, "%02X", status);
+      	    transmit_uart_message("STATUS:", 7);
+      	    transmit_uart_message(stat, 1);
+      	    transmit_uart_message("DATA:", 5);
       	    transmit_uart_message((char*) data_buffer, 128);
       	}else if(current_command == WRITE){
       	   status = write_to_memory(addr_buffer, data_buffer);
-      	   transmit_uart_message("STATUS: \r\n", 10);
-      	   transmit_uart_message((char*) &status, 1);
+     	   sprintf(stat, "%02X", status);
+      	   transmit_uart_message("STATUS:", 7);
+      	   transmit_uart_message(stat, 1);
       	 }
 
+      	current_command = NONE;
       	state = START;
       	break;
     }

@@ -34,34 +34,34 @@ $(wildcard ../makefile.init) \
 $(wildcard ../makefile.targets) \
 
 
-BUILD_ARTIFACT_NAME := MeMORBIN_Card
+BUILD_ARTIFACT_NAME := MeMorbinCard
 BUILD_ARTIFACT_EXTENSION := elf
 BUILD_ARTIFACT_PREFIX :=
 BUILD_ARTIFACT := $(BUILD_ARTIFACT_PREFIX)$(BUILD_ARTIFACT_NAME)$(if $(BUILD_ARTIFACT_EXTENSION),.$(BUILD_ARTIFACT_EXTENSION),)
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXECUTABLES += \
-MeMORBIN_Card.elf \
+MeMorbinCard.elf \
 
 MAP_FILES += \
-MeMORBIN_Card.map \
+MeMorbinCard.map \
 
 SIZE_OUTPUT += \
 default.size.stdout \
 
 OBJDUMP_LIST += \
-MeMORBIN_Card.list \
+MeMorbinCard.list \
 
 
 # All Target
 all: main-build
 
 # Main-build Target
-main-build: MeMORBIN_Card.elf secondary-outputs
+main-build: MeMorbinCard.elf secondary-outputs
 
 # Tool invocations
-MeMORBIN_Card.elf MeMORBIN_Card.map: $(OBJS) $(USER_OBJS) fail-specified-linker-script-missing makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "MeMORBIN_Card.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 --specs=nosys.specs -Wl,-Map="MeMORBIN_Card.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+MeMorbinCard.elf MeMorbinCard.map: $(OBJS) $(USER_OBJS) C:\Users\joaog\STM32CubeIDE\workspace_1.9.0\MeMorbinCard\STM32F103C8TX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "MeMorbinCard.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m3 -T"C:\Users\joaog\STM32CubeIDE\workspace_1.9.0\MeMorbinCard\STM32F103C8TX_FLASH.ld" --specs=nosys.specs -Wl,-Map="MeMorbinCard.map" -Wl,--gc-sections -static --specs=nano.specs -mfloat-abi=soft -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -70,14 +70,14 @@ default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-MeMORBIN_Card.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "MeMORBIN_Card.list"
+MeMorbinCard.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "MeMorbinCard.list"
 	@echo 'Finished building: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) MeMORBIN_Card.elf MeMORBIN_Card.list MeMORBIN_Card.map default.size.stdout
+	-$(RM) MeMorbinCard.elf MeMorbinCard.list MeMorbinCard.map default.size.stdout
 	-@echo ' '
 
 secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
